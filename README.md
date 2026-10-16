@@ -178,7 +178,7 @@ chmod +x setup.sh
 1. 校验 `docker` 与 `docker compose` 是否可用；
 2. 若不存在 `.env`，用 `secrets.token_urlsafe(48)` 生成随机 Token，写入 `.env` 并把权限设为 `600`；
 3. 执行 `docker compose up -d --build` 构建并启动服务；
-4. 在终端**显示一次**该 Token（粘贴到 Android App 的“设备写入凭证”）。
+4. 在可信终端显示 `STATUS_API_TOKEN` 和 `STATUS_ADMIN_TOKEN`；前者填入 Android，后者用于网页登录。终端输出属于敏感信息。
 
 服务只绑定宿主 `127.0.0.1:8090`，不会直接监听公网。查看状态：
 
@@ -203,7 +203,8 @@ docker compose down                  # 停止（不会删除 ./data）
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `STATUS_API_TOKEN` | 是 | 设备写入凭证，**至少 32 字符**；长度不足应用会拒绝启动 |
+| `STATUS_API_TOKEN` | 是 | 设备写入凭证，至少 32 字符；长度不足应用会拒绝启动 |
+| `STATUS_ADMIN_TOKEN` | 是 | 网页管理令牌，必须与设备写入令牌分开，至少 32 字符 |
 | `STATUS_DB_PATH` | 否 | 数据库路径，默认容器内 `/data/status.db`（由 compose 设定） |
 | `TZ` | 否 | 容器时区，默认 `Asia/Shanghai`（由 compose 设定） |
 
@@ -216,7 +217,7 @@ docker compose down                  # 停止（不会删除 ./data）
   python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
   ```
 - **保管**：Token 只保存在服务器 `.env`（权限 `600`）与 Android App 中。不要提交到 Git、不要发到公开群聊、不要写入日志。
-- **查看**：`grep STATUS_API_TOKEN /opt/maistatus-server/.env`
+- **查看**：`grep -E '^STATUS_(API|ADMIN)_TOKEN=' /opt/maistatus-server/.env`（只在可信终端查看）
 - **轮换**：
   ```bash
   # 编辑 .env 修改 STATUS_API_TOKEN 后：
@@ -333,7 +334,7 @@ STATUS_API_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(48))')
 ## 12. 安全与隐私
 
 - 位置、活动与音乐均为个人敏感信息，请限制服务器访问与备份范围。
-- 除 `/healthz` 外所有接口都需要 Bearer Token；Token 使用常量时间比较。
+- 设备 API 使用 `STATUS_API_TOKEN` Bearer Token；管理数据 API 使用独立的 `STATUS_ADMIN_TOKEN` 或签名会话 Cookie；令牌比较采用常量时间比较。
 - 服务端**不记录请求正文**，避免日志写入精确坐标、歌曲或凭证。
 - 保持后端只监听 loopback，前面必须有终止 TLS 的反向代理；不要将 `8090` 直接暴露到公网。
 - 不要提交或公开 `.env`、数据库、Token、真实经纬度或含凭证的截图。
