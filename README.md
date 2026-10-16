@@ -23,6 +23,7 @@
 11. [本地测试](#11-本地测试)
 12. [安全与隐私](#12-安全与隐私)
 13. [项目结构](#13-项目结构)
+14. [设备管理面板](#14-设备管理面板)
 
 ---
 
@@ -100,7 +101,7 @@
 
 ## 3. API 接口说明
 
-除 `/healthz` 外，所有接口都需要请求头 `Authorization: Bearer <STATUS_API_TOKEN>`。
+除 `/healthz`、管理页面静态外壳与管理登录入口外，设备 API 都需要请求头 `Authorization: Bearer <STATUS_API_TOKEN>`。管理面板使用独立的 `STATUS_ADMIN_TOKEN` 登录，管理数据 API 不接受设备写入令牌。
 
 | 方法 | 路径 | 用途 | 认证 |
 | --- | --- | --- | --- |
@@ -108,6 +109,7 @@
 | `POST` | `/api/v1/events` | 接收上报事件 | 是 |
 | `GET` | `/api/v1/status/latest` | 返回最新位置/活动/音乐状态 | 是 |
 | `GET` | `/api/v1/events?limit=50[&event_type=music]` | 查看最近事件 | 是 |
+| `POST` | `/api/v1/devices/heartbeat` | 更新设备最近通信时间 | 是 |
 
 **上报（POST /api/v1/events）**
 
@@ -176,7 +178,7 @@ chmod +x setup.sh
 1. 校验 `docker` 与 `docker compose` 是否可用；
 2. 若不存在 `.env`，用 `secrets.token_urlsafe(48)` 生成随机 Token，写入 `.env` 并把权限设为 `600`；
 3. 执行 `docker compose up -d --build` 构建并启动服务；
-4. 在终端**显示一次**该 Token（粘贴到 Android App 的“设备写入凭证”）。
+4. 在可信终端显示 `STATUS_API_TOKEN` 和 `STATUS_ADMIN_TOKEN`；前者填入 Android，后者用于网页登录。终端输出属于敏感信息。
 
 服务只绑定宿主 `127.0.0.1:8090`，不会直接监听公网。查看状态：
 
@@ -201,7 +203,8 @@ docker compose down                  # 停止（不会删除 ./data）
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `STATUS_API_TOKEN` | 是 | 设备写入凭证，**至少 32 字符**；长度不足应用会拒绝启动 |
+| `STATUS_API_TOKEN` | 是 | 设备写入凭证，至少 32 字符；长度不足应用会拒绝启动 |
+| `STATUS_ADMIN_TOKEN` | 是 | 网页管理令牌，必须与设备写入令牌分开，至少 32 字符 |
 | `STATUS_DB_PATH` | 否 | 数据库路径，默认容器内 `/data/status.db`（由 compose 设定） |
 | `TZ` | 否 | 容器时区，默认 `Asia/Shanghai`（由 compose 设定） |
 
@@ -214,7 +217,7 @@ docker compose down                  # 停止（不会删除 ./data）
   python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
   ```
 - **保管**：Token 只保存在服务器 `.env`（权限 `600`）与 Android App 中。不要提交到 Git、不要发到公开群聊、不要写入日志。
-- **查看**：`grep STATUS_API_TOKEN /opt/maistatus-server/.env`
+- **查看**：`grep -E '^STATUS_(API|ADMIN)_TOKEN=' /opt/maistatus-server/.env`（只在可信终端查看）
 - **轮换**：
   ```bash
   # 编辑 .env 修改 STATUS_API_TOKEN 后：
@@ -269,7 +272,7 @@ https://status.example.com/api/v1/events
 
 ## 9. 健康检查与故障排查
 
-健康检查（预期返回 `{"ok":true,"service":"maistatus-receiver","version":"1.0.0"}`）：
+健康检查（预期返回 `{"ok":true,"service":"maistatus-receiver","version":"1.1.0"}`）：
 
 ```bash
 curl http://127.0.0.1:8090/healthz
@@ -324,6 +327,7 @@ python tests/smoke_test.py
 python -m venv .venv && . .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 STATUS_API_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(48))')" \
+  STATUS_ADMIN_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(48))')" \
   STATUS_DB_PATH="./data/status.db" \
   uvicorn main:app --host 127.0.0.1 --port 8090
 ```
@@ -331,7 +335,7 @@ STATUS_API_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(48))')
 ## 12. 安全与隐私
 
 - 位置、活动与音乐均为个人敏感信息，请限制服务器访问与备份范围。
-- 除 `/healthz` 外所有接口都需要 Bearer Token；Token 使用常量时间比较。
+- 设备 API 使用 `STATUS_API_TOKEN` Bearer Token；管理数据 API 使用独立的 `STATUS_ADMIN_TOKEN` 或签名会话 Cookie；令牌比较采用常量时间比较。
 - 服务端**不记录请求正文**，避免日志写入精确坐标、歌曲或凭证。
 - 保持后端只监听 loopback，前面必须有终止 TLS 的反向代理；不要将 `8090` 直接暴露到公网。
 - 不要提交或公开 `.env`、数据库、Token、真实经纬度或含凭证的截图。
@@ -356,3 +360,20 @@ STATUS_API_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(48))')
 └── tests/
     └── smoke_test.py       # 契约自检
 ```
+
+
+## 14. 设备管理面板
+
+服务端包含一个独立的设备管理页面，可通过 HTTPS 域名访问：
+
+- 页面：`https://YOUR_DOMAIN/admin/devices`
+- 若使用本仓库 Nginx 子路径代理：`https://YOUR_DOMAIN/maistatus/admin/devices`
+- 管理端 API：`GET /admin/api/devices`（需要管理会话或 `Authorization: Bearer <STATUS_ADMIN_TOKEN>`）
+- 登录：页面输入 `STATUS_ADMIN_TOKEN`，服务端设置 HttpOnly、Secure、SameSite=Strict 会话 Cookie，有效期 8 小时。
+- 管理令牌与 Android 的 `STATUS_API_TOKEN` 分开生成、分开保管；不要把令牌放进 URL、截图或日志。
+
+`./setup.sh` 会在 `.env` 中分别生成两枚至少 32 字符的令牌，并将文件权限设为 600。旧版本已有 `.env` 时，脚本会补齐缺失的管理令牌，不需要删除现有数据或重置设备写入凭证。
+
+新版本 Android 客户端会在上报事件中发送持久化的 `device_id`，并定期调用 `POST /api/v1/devices/heartbeat`。服务端据此记录设备名称、平台、首次/最近通信时间及事件总数。最近 45 分钟内收到心跳或状态上报的设备标记为“最近活跃”；这不是长连接状态。旧客户端没有设备 ID，其事件会显示在“旧客户端未识别事件”统计中，而不会被错误地拆分成虚假设备。
+
+页面和 API 复用现有 HTTPS 反向代理，无需开放容器的 8090 端口。使用 Nginx Proxy Manager 或 Cloudflare Tunnel 时，请确保 HTTPS 域名转发到当前接收端，并让代理传递 `X-Forwarded-Proto: https`。管理页面不会返回位置、歌曲等事件正文。
