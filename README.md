@@ -24,6 +24,7 @@
 12. [安全与隐私](#12-安全与隐私)
 13. [项目结构](#13-项目结构)
 14. [设备管理面板](#14-设备管理面板)
+15. [客户端上传记录](#15-客户端上传记录)
 
 ---
 
@@ -110,6 +111,8 @@
 | `GET` | `/api/v1/status/latest` | 返回最新位置/活动/音乐状态 | 是 |
 | `GET` | `/api/v1/events?limit=50[&event_type=music]` | 查看最近事件 | 是 |
 | `POST` | `/api/v1/devices/heartbeat` | 更新设备最近通信时间 | 是 |
+| `GET` | `/admin/api/devices` | 管理端设备列表与统计 | 管理员 |
+| `GET` | `/admin/api/events?limit=50&offset=0` | 管理端分页查询上传记录 | 管理员 |
 
 **上报（POST /api/v1/events）**
 
@@ -272,7 +275,7 @@ https://status.example.com/api/v1/events
 
 ## 9. 健康检查与故障排查
 
-健康检查（预期返回 `{"ok":true,"service":"maistatus-receiver","version":"1.1.0"}`）：
+健康检查（预期返回 `{"ok":true,"service":"maistatus-receiver","version":"1.2.0"}`）：
 
 ```bash
 curl http://127.0.0.1:8090/healthz
@@ -376,4 +379,16 @@ STATUS_API_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(48))')
 
 新版本 Android 客户端会在上报事件中发送持久化的 `device_id`，并定期调用 `POST /api/v1/devices/heartbeat`。服务端据此记录设备名称、平台、首次/最近通信时间及事件总数。最近 45 分钟内收到心跳或状态上报的设备标记为“最近活跃”；这不是长连接状态。旧客户端没有设备 ID，其事件会显示在“旧客户端未识别事件”统计中，而不会被错误地拆分成虚假设备。
 
-页面和 API 复用现有 HTTPS 反向代理，无需开放容器的 8090 端口。使用 Nginx Proxy Manager 或 Cloudflare Tunnel 时，请确保 HTTPS 域名转发到当前接收端，并让代理传递 `X-Forwarded-Proto: https`。管理页面不会返回位置、歌曲等事件正文。
+页面和 API 复用现有 HTTPS 反向代理，无需开放容器的 8090 端口。使用 Nginx Proxy Manager 或 Cloudflare Tunnel 时，请确保 HTTPS 域名转发到当前接收端，并让代理传递 `X-Forwarded-Proto: https`。设备列表 API 只返回聚合统计与设备元数据；上传记录由独立管理员接口读取。
+
+
+## 15. 客户端上传记录
+
+在设备管理页面 `/admin/devices` 中，登录后可以查看“客户端上传记录”，无需额外部署页面。
+
+- 表格展示服务器接收时间、客户端事件时间、设备名称、事件类型、事件 ID 与简要摘要。
+- 支持按 `location`（位置）、`activity`（活动识别）、`music`（音乐）筛选，也支持按已识别设备筛选。
+- 每页最多 200 条，默认每页 50 条；支持上一页/下一页。结果按服务端接收时间倒序排列。
+- “查看详情”会展开对应事件的完整 JSON。位置事件可能包含精确坐标，音乐事件可能包含歌曲和艺术家名称，因此整个区域仅能通过 HTTPS 与管理员会话访问。
+- 接口：`GET /admin/api/events?limit=50&offset=0&event_type=music&device_id=<设备ID>`。所有筛选参数均可省略；`limit` 最大为 200。接口要求管理员会话或单独的 `STATUS_ADMIN_TOKEN`，不会接受客户端写入令牌。
+- 只展示已经成功写入 SQLite 的事件。验证失败的请求、网络失败、服务端拒绝的请求和被事件 ID 去重的重复上传不会成为额外记录；此版本没有新增请求正文日志。

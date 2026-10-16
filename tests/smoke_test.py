@@ -15,8 +15,10 @@ for expected in (
     '"STATUS_API_TOKEN"',
     '"/admin/devices"',
     '"/admin/api/devices"',
+    '"/admin/api/events"',
     '"/api/v1/devices/heartbeat"',
     '"/api/v1/evens"',
+    'APP_VERSION = "1.2.0"',
     '"event_type must be location, activity, or music"',
 ):
     assert expected in source, f"missing contract item: {expected}"
