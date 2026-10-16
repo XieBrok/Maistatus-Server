@@ -11,11 +11,11 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 DB_PATH = os.environ.get("STATUS_DB_PATH", "/data/status.db")
 API_TOKEN = os.environ.get("STATUS_API_TOKEN", "").strip()
 ADMIN_TOKEN = os.environ.get("STATUS_ADMIN_TOKEN", "").strip()
@@ -328,11 +328,27 @@ button{font:inherit;font-weight:650;border:0;border-radius:11px;background:var(-
 <div id="emptyState" class="empty" hidden>暂时没有已登记设备。安装新版 MyStatus 后，设备将在首次心跳或上报时显示。</div>
 <div id="dashboardError" class="error" role="status"></div>
 </div>
+<div class="panel">
+<div class="bar"><h2>客户端上传记录</h2><span id="eventUpdatedAt" class="muted">等待加载…</span><button id="eventRefreshButton" class="secondary" type="button">刷新记录</button></div>
+<div class="bar" style="margin-top:14px">
+<label for="eventTypeFilter" style="margin:0">类型</label>
+<select id="eventTypeFilter" class="event-filter"><option value="">全部类型</option><option value="location">位置</option><option value="activity">活动识别</option><option value="music">音乐</option></select>
+<label for="deviceFilter" style="margin:0">客户端</label>
+<select id="deviceFilter" class="event-filter"><option value="">全部客户端</option></select>
+</div>
+<div class="hint" style="margin-top:10px">这里只显示服务端成功写入数据库的事件；被拒绝的请求、重复事件以及网络失败不会作为新记录出现。位置坐标、音乐标题等内容收在“查看详情”中。</div>
+<div class="table-wrap"><table style="min-width:920px"><thead><tr><th>服务器接收时间</th><th>客户端事件时间</th><th>客户端</th><th>类型</th><th>事件 ID / 摘要</th><th>详情</th></tr></thead><tbody id="eventRows"></tbody></table></div>
+<div id="eventEmptyState" class="empty" hidden>没有符合条件的上传记录。</div>
+<div class="bar" style="margin-top:12px"><button id="prevEventsButton" class="secondary" type="button" disabled>上一页</button><span id="eventPageInfo" class="muted">第 1 页</span><button id="nextEventsButton" class="secondary" type="button" disabled>下一页</button></div>
+<div id="eventError" class="error" role="status"></div>
+</div>
 </section>
 </main>
 <script>
 const $=id=>document.getElementById(id);
 let refreshTimer=null;
+let eventOffset=0;
+const eventLimit=50;
 function show(which){$("httpsWarning").hidden=which!=="https";$("login").hidden=which!=="login";$("dashboard").hidden=which!=="dashboard";}
 function esc(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function dateText(value){if(!value)return "暂无";return new Date(value).toLocaleString("zh-CN",{hour12:false});}
@@ -343,12 +359,55 @@ async function fetchDevices(){
   if(!response.ok)throw new Error("读取设备列表失败（HTTP "+response.status+"）");
   return await response.json();
 }
+async function refreshEvents(){
+  $("eventRefreshButton").disabled=true;
+  try{
+    const params=new URLSearchParams({limit:String(eventLimit),offset:String(eventOffset)});
+    if($("eventTypeFilter").value)params.set("event_type",$("eventTypeFilter").value);
+    if($("deviceFilter").value)params.set("device_id",$("deviceFilter").value);
+    const response=await fetch("./api/events?"+params.toString(),{method:"GET",credentials:"same-origin",cache:"no-store",headers:{"Accept":"application/json"}});
+    if(response.status===401){if(refreshTimer)clearInterval(refreshTimer);show("login");return;}
+    if(!response.ok)throw new Error("读取上传记录失败（HTTP "+response.status+"）");
+    const data=await response.json();
+    renderEvents(data);
+  }catch(error){
+    $("eventError").textContent=error.message||"上传记录加载失败，请稍后重试。";
+  }finally{$("eventRefreshButton").disabled=false;}
+}
+function eventTypeLabel(value){return ({location:"位置",activity:"活动识别",music:"音乐"})[value]||value||"未知";}
+function eventSummary(item){
+  const d=item.data||{};
+  if(item.event_type==="location")return "位置数据（详情内包含坐标）";
+  if(item.event_type==="activity")return "类型 "+String(d.activity_type??"未知")+" · 置信度 "+String(d.confidence??"未知")+"%";
+  if(item.event_type==="music")return [d.title,d.artist].filter(Boolean).join(" — ")||(d.state||"音乐状态上报");
+  return "已接收";
+}
+function renderEvents(data){
+  const rows=data.events||[];
+  $("eventUpdatedAt").textContent="更新于 "+dateText(data.server_time||Date.now());
+  $("eventRows").innerHTML=rows.map(e=>{
+    const client=e.device_name||"未识别的旧版客户端";
+    const payload=esc(JSON.stringify(e.data||{},null,2));
+    return "<tr><td>"+esc(dateText(e.received_at))+"</td><td>"+esc(dateText(e.event_time))+"</td><td><div class='device-name'>"+esc(client)+"</div><div class='device-id'>"+esc(e.device_id||"旧版客户端")+"</div></td><td>"+esc(eventTypeLabel(e.event_type))+"</td><td><div class='device-id'>"+esc(e.event_id)+"</div><div>"+esc(eventSummary(e))+"</div></td><td><details><summary>查看详情</summary><pre style='white-space:pre-wrap;overflow-wrap:anywhere;max-width:380px;font-size:12px;background:#f5f7fb;padding:10px;border-radius:8px'>"+payload+"</pre></details></td></tr>";
+  }).join("");
+  $("eventEmptyState").hidden=rows.length!==0;
+  $("eventPageInfo").textContent="第 "+(Math.floor(eventOffset/eventLimit)+1)+" 页 · 本页 "+rows.length+" 条";
+  $("prevEventsButton").disabled=eventOffset===0;
+  $("nextEventsButton").disabled=!data.has_more;
+  $("eventError").textContent="";
+}
+function updateDeviceOptions(rows){
+  const select=$("deviceFilter"),previous=select.value;
+  select.innerHTML="<option value=''>全部客户端</option>"+rows.map(d=>"<option value='"+esc(d.device_id)+"'>"+esc(d.device_name)+" · "+esc(d.device_id.slice(0,8))+"</option>").join("");
+  if(rows.some(d=>d.device_id===previous))select.value=previous;else select.value="";
+}
 function render(data){
   const s=data.summary||{},now=data.server_time||Date.now();
   $("totalDevices").textContent=s.total_devices??0;$("onlineDevices").textContent=s.online_devices??0;
   $("recentEvents").textContent=s.events_last_24h??0;$("legacyEvents").textContent=s.legacy_events??0;
   $("updatedAt").textContent="更新于 "+dateText(now);
   const rows=data.devices||[];
+  updateDeviceOptions(rows);
   $("deviceRows").innerHTML=rows.map(d=>{
     const online=!!d.online;
     return "<tr><td><div class='device'><div class='device-icon' aria-hidden='true'>▣</div><div><div class='device-name'>"+esc(d.device_name)+"</div><div class='device-id'>"+esc(d.device_id)+"</div></div></div></td><td>"+esc(d.platform)+"</td><td><span class='status "+(online?"online":"offline")+"'>"+(online?"● 最近活跃":"● 离线")+"</span></td><td title='"+esc(dateText(d.last_seen))+"'>"+esc(ago(d.last_seen,now))+"</td><td>"+esc(d.event_count)+"</td></tr>";
@@ -358,7 +417,7 @@ function render(data){
 }
 async function refresh(){
   $("refreshButton").disabled=true;
-  try{const data=await fetchDevices();if(data){show("dashboard");render(data);}}
+  try{const data=await fetchDevices();if(data){show("dashboard");render(data);await refreshEvents();}}
   catch(error){$("dashboardError").textContent=error.message||"网络请求失败，请检查 HTTPS 代理与服务端。";}
   finally{$("refreshButton").disabled=false;}
 }
@@ -374,6 +433,11 @@ $("loginForm").addEventListener("submit",async event=>{
   finally{$("loginButton").disabled=false;}
 });
 $("refreshButton").addEventListener("click",refresh);
+$("eventRefreshButton").addEventListener("click",refreshEvents);
+$("eventTypeFilter").addEventListener("change",()=>{eventOffset=0;refreshEvents();});
+$("deviceFilter").addEventListener("change",()=>{eventOffset=0;refreshEvents();});
+$("prevEventsButton").addEventListener("click",()=>{eventOffset=Math.max(0,eventOffset-eventLimit);refreshEvents();});
+$("nextEventsButton").addEventListener("click",()=>{eventOffset+=eventLimit;refreshEvents();});
 $("logoutButton").addEventListener("click",async()=>{
   try{await fetch("./logout",{method:"POST",credentials:"same-origin",cache:"no-store"});}catch(_){}
   if(refreshTimer)clearInterval(refreshTimer);refreshTimer=null;show("login");
@@ -652,3 +716,63 @@ def admin_list_devices() -> dict[str, Any]:
         },
         "devices": devices,
     }
+
+
+@app.get("/admin/api/events", dependencies=[Depends(require_admin)])
+def admin_list_events(
+    response: Response,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=100000000),
+    event_type: Literal["location", "activity", "music"] | None = None,
+    device_id: str | None = Query(default=None, max_length=128),
+) -> dict[str, Any]:
+    """List persisted upload records; details are available only to authenticated admins."""
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    clauses: list[str] = []
+    params: list[Any] = []
+    if event_type:
+        clauses.append("e.event_type = ?")
+        params.append(event_type)
+    if device_id:
+        clauses.append("e.device_id = ?")
+        params.append(device_id)
+    where_sql = " WHERE " + " AND ".join(clauses) if clauses else ""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT e.event_id, e.event_time, e.event_type, e.payload_json, e.received_at,
+                   e.device_id, d.device_name, d.platform
+            FROM events e
+            LEFT JOIN devices d ON d.device_id = e.device_id
+            """ + where_sql + """
+            ORDER BY e.received_at DESC, e.event_time DESC
+            LIMIT ? OFFSET ?
+            """,
+            (*params, limit + 1, offset),
+        ).fetchall()
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    events = [
+        {
+            "event_id": row["event_id"],
+            "event_time": row["event_time"],
+            "event_type": row["event_type"],
+            "received_at": row["received_at"],
+            "device_id": row["device_id"],
+            "device_name": row["device_name"] or "未识别的旧版客户端",
+            "platform": row["platform"] or "unknown",
+            "data": json.loads(row["payload_json"]),
+        }
+        for row in rows
+    ]
+    return {
+        "ok": True,
+        "server_time": _now_ms(),
+        "limit": limit,
+        "offset": offset,
+        "count": len(events),
+        "has_more": has_more,
+        "events": events,
+    }
+
