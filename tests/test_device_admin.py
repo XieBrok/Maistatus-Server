@@ -1,6 +1,7 @@
 """Integration checks for device registration and separate admin authentication."""
 import os
 import sqlite3
+import sys
 import tempfile
 import time
 import unittest
@@ -10,6 +11,7 @@ API_TOKEN = "test-device-write-token-" + "a" * 40
 ADMIN_TOKEN = "test-admin-only-token-" + "b" * 40
 TEMP_DIR = tempfile.TemporaryDirectory()
 DB_FILE = str(Path(TEMP_DIR.name) / "status.db")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 os.environ["STATUS_API_TOKEN"] = API_TOKEN
 os.environ["STATUS_ADMIN_TOKEN"] = ADMIN_TOKEN
