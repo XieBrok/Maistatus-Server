@@ -264,7 +264,9 @@ def _valid_admin_session(value: str | None) -> bool:
 
 
 def require_admin(request: Request) -> None:
-    """Admin page/API must use the separate admin token or its signed session cookie."""
+    """Admin page/API must use HTTPS plus the separate token or its signed session cookie."""
+    if not _is_https_request(request):
+        raise HTTPException(status_code=400, detail="HTTPS is required for admin access")
     authorization = request.headers.get("authorization", "")
     if authorization.lower().startswith("bearer "):
         supplied = authorization[7:].strip()
