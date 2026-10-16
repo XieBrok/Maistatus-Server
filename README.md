@@ -327,6 +327,7 @@ python tests/smoke_test.py
 python -m venv .venv && . .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 STATUS_API_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(48))')" \
+  STATUS_ADMIN_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(48))')" \
   STATUS_DB_PATH="./data/status.db" \
   uvicorn main:app --host 127.0.0.1 --port 8090
 ```
