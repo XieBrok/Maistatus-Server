@@ -135,6 +135,78 @@ class DeviceAdminTests(unittest.TestCase):
             self.assertEqual(listed["devices"][0]["event_count"], 2)
 
 
+    def test_admin_upload_history_requires_auth_supports_filters_and_pagination(self):
+        unauthorized = self.client.get("/admin/api/events")
+        self.assertEqual(unauthorized.status_code, 401)
+
+        event_specs = [
+            ("history-music-1", "music", {
+                "state": "playing", "title": "Test song", "artist": "Test artist",
+                "device_id": "device-history-1", "device_name": "History Phone", "platform": "android",
+            }),
+            ("history-activity-1", "activity", {
+                "activity_type": 3, "confidence": 88,
+                "device_id": "device-history-1", "device_name": "History Phone", "platform": "android",
+            }),
+            ("history-music-2", "music", {
+                "state": "paused", "title": "Other song",
+                "device_id": "device-history-2", "device_name": "Second Phone", "platform": "android",
+            }),
+        ]
+        for event_id, event_type, details in event_specs:
+            body = {
+                **details,
+                "event_id": event_id,
+                "event_type": event_type,
+                "event_time": int(time.time() * 1000),
+            }
+            response = self.client.post(
+                "/api/v1/events",
+                headers={
+                    "Authorization": f"Bearer {API_TOKEN}",
+                    "Idempotency-Key": event_id,
+                },
+                json=body,
+            )
+            self.assertEqual(response.status_code, 200)
+
+        login = self.client.post(
+            "/admin/login",
+            headers={"X-Forwarded-Proto": "https"},
+            json={"token": ADMIN_TOKEN},
+        )
+        self.assertEqual(login.status_code, 200)
+
+        page = self.client.get("/admin/api/events?limit=2&offset=0")
+        self.assertEqual(page.status_code, 200)
+        page_payload = page.json()
+        self.assertEqual(page_payload["count"], 2)
+        self.assertTrue(page_payload["has_more"])
+        self.assertIn("device_name", page_payload["events"][0])
+
+        filtered = self.client.get(
+            "/admin/api/events?event_type=music&device_id=device-history-1"
+        )
+        self.assertEqual(filtered.status_code, 200)
+        filtered_payload = filtered.json()
+        self.assertEqual(filtered_payload["count"], 1)
+        self.assertFalse(filtered_payload["has_more"])
+        self.assertEqual(filtered_payload["events"][0]["event_type"], "music")
+        self.assertEqual(filtered_payload["events"][0]["device_name"], "History Phone")
+        self.assertEqual(filtered_payload["events"][0]["data"]["title"], "Test song")
+
+        invalid_type = self.client.get("/admin/api/events?event_type=not-a-type")
+        self.assertEqual(invalid_type.status_code, 422)
+
+    def test_admin_events_page_is_exposed_and_version_updated(self):
+        page = self.client.get("/admin/devices")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("客户端上传记录", page.text)
+        self.assertIn("./api/events", page.text)
+        health = self.client.get("/healthz")
+        self.assertEqual(health.status_code, 200)
+        self.assertEqual(health.json()["version"], "1.2.0")
+
 if __name__ == "__main__":
     try:
         unittest.main()
