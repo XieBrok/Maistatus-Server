@@ -101,7 +101,7 @@
 
 ## 3. API 接口说明
 
-除 `/healthz` 外，所有接口都需要请求头 `Authorization: Bearer <STATUS_API_TOKEN>`。
+除 `/healthz`、管理页面静态外壳与管理登录入口外，设备 API 都需要请求头 `Authorization: Bearer <STATUS_API_TOKEN>`。管理面板使用独立的 `STATUS_ADMIN_TOKEN` 登录，管理数据 API 不接受设备写入令牌。
 
 | 方法 | 路径 | 用途 | 认证 |
 | --- | --- | --- | --- |
@@ -109,6 +109,7 @@
 | `POST` | `/api/v1/events` | 接收上报事件 | 是 |
 | `GET` | `/api/v1/status/latest` | 返回最新位置/活动/音乐状态 | 是 |
 | `GET` | `/api/v1/events?limit=50[&event_type=music]` | 查看最近事件 | 是 |
+| `POST` | `/api/v1/devices/heartbeat` | 更新设备最近通信时间 | 是 |
 
 **上报（POST /api/v1/events）**
 
@@ -270,7 +271,7 @@ https://status.example.com/api/v1/events
 
 ## 9. 健康检查与故障排查
 
-健康检查（预期返回 `{"ok":true,"service":"maistatus-receiver","version":"1.0.0"}`）：
+健康检查（预期返回 `{"ok":true,"service":"maistatus-receiver","version":"1.1.0"}`）：
 
 ```bash
 curl http://127.0.0.1:8090/healthz
