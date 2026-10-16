@@ -23,6 +23,7 @@
 11. [本地测试](#11-本地测试)
 12. [安全与隐私](#12-安全与隐私)
 13. [项目结构](#13-项目结构)
+14. [设备管理面板](#14-设备管理面板)
 
 ---
 
@@ -356,3 +357,20 @@ STATUS_API_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(48))')
 └── tests/
     └── smoke_test.py       # 契约自检
 ```
+
+
+## 14. 设备管理面板
+
+服务端包含一个独立的设备管理页面，可通过 HTTPS 域名访问：
+
+- 页面：`https://YOUR_DOMAIN/admin/devices`
+- 若使用本仓库 Nginx 子路径代理：`https://YOUR_DOMAIN/maistatus/admin/devices`
+- 管理端 API：`GET /admin/api/devices`（需要管理会话或 `Authorization: Bearer <STATUS_ADMIN_TOKEN>`）
+- 登录：页面输入 `STATUS_ADMIN_TOKEN`，服务端设置 HttpOnly、Secure、SameSite=Strict 会话 Cookie，有效期 8 小时。
+- 管理令牌与 Android 的 `STATUS_API_TOKEN` 分开生成、分开保管；不要把令牌放进 URL、截图或日志。
+
+`./setup.sh` 会在 `.env` 中分别生成两枚至少 32 字符的令牌，并将文件权限设为 600。旧版本已有 `.env` 时，脚本会补齐缺失的管理令牌，不需要删除现有数据或重置设备写入凭证。
+
+新版本 Android 客户端会在上报事件中发送持久化的 `device_id`，并定期调用 `POST /api/v1/devices/heartbeat`。服务端据此记录设备名称、平台、首次/最近通信时间及事件总数。最近 45 分钟内收到心跳或状态上报的设备标记为“最近活跃”；这不是长连接状态。旧客户端没有设备 ID，其事件会显示在“旧客户端未识别事件”统计中，而不会被错误地拆分成虚假设备。
+
+页面和 API 复用现有 HTTPS 反向代理，无需开放容器的 8090 端口。使用 Nginx Proxy Manager 或 Cloudflare Tunnel 时，请确保 HTTPS 域名转发到当前接收端，并让代理传递 `X-Forwarded-Proto: https`。管理页面不会返回位置、歌曲等事件正文。
