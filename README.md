@@ -2,7 +2,7 @@
 
 > **English:** A lightweight FastAPI backend that receives personal status events (`location` / `activity` / `music`) from the [Maistatus Android client](https://github.com/XieBrok/Maistatus-android). It persists events in SQLite, authenticates every request with a Bearer token, deduplicates by `event_id`, and ships with Docker Compose deployment and an Nginx reverse-proxy example.
 
-一个与 [`XieBrok/Maistatus-android`](https://github.com/XieBrok/Maistatus-android) Kotlin 客户端上传逻辑配套的轻量服务端：**FastAPI + SQLite + Docker Compose**，适合部署在 Ubuntu/Debian 服务器上，通过 HTTPS 反向代理对外提供接口。
+一个与 [`XieBrok/Maistatus-android`](https://github.com/XieBrok/Maistatus-android) Kotlin Android客户端上传逻辑配套的轻量服务端：**FastAPI + SQLite + Docker Compose**，适合部署在 Ubuntu/Debian 服务器上，通过 HTTPS 反向代理对外提供接口。
 
 > 注意：上游仓库 README 展示过一个汇总式 JSON 示例，但当前 Android `UploadWorker.kt` 实际发出的是**单事件 JSON**。本服务端按实际代码实现：一次 `POST` 对应一个 `location`、`activity` 或 `music` 事件。
 
